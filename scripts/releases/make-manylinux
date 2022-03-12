@@ -132,10 +132,10 @@ if [ -d /gevent -a -d /opt/python ]; then
         # it, and auditwheel is installed in one of these environments.
         python -mpip install -U "cython >= 3.0a6" cffi 'greenlet >= 1.0' setuptools
         time (python setup.py bdist_wheel)
-        PATH="$OPATH" auditwheel repair dist/gevent*.whl
-        cp wheelhouse/gevent*.whl /gevent/wheelhouse
+        PATH="$OPATH" auditwheel repair dist/levoai-gevent*.whl
+        cp wheelhouse/levoai-gevent*.whl /gevent/wheelhouse
 
-        python -mpip install -U --no-compile `ls dist/gevent*whl`[test]
+        python -mpip install -U --no-compile `ls dist/levoai-gevent*whl`[test]
         echo 'Installation details'
         python -c 'from __future__ import print_function; import gevent; print(gevent, gevent.__version__)'
         python -c 'from __future__ import print_function; from gevent._compat import get_clock_info; print("clock info", get_clock_info("perf_counter"))'
@@ -157,7 +157,7 @@ if [ -d /gevent -a -d /opt/python ]; then
             python -mgevent.tests.test__core
         fi
         rm -rf build
-        rm -f dist/gevent*.whl
+        rm -f dist/levoai-gevent*.whl
         ccache -s || true
     done
     ccache -s || true
