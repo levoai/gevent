@@ -121,7 +121,7 @@ if [ -d /gevent -a -d /opt/python ]; then
     mkdir /gevent/wheelhouse
     OPATH="$PATH"
     which auditwheel
-    for variant in `ls -d /opt/python/cp{310,27,36,37,38,39}*`; do
+    for variant in `ls -d /opt/python/cp{39}*`; do
         export PATH="$variant/bin:$OPATH"
         echo "Building $variant $(python --version)"
 
@@ -149,14 +149,14 @@ if [ -d /gevent -a -d /opt/python ]; then
             python -c 'from __future__ import print_function; import gevent.ares; print("ares", gevent.ares)'
         fi
 
-        if [ -z "$GEVENTTEST_SKIP_ALL" ]; then
-            python -mgevent.tests --second-chance
-        else
-            # Allow skipping the bulk of the tests. If we're emulating Arm,
-            # running the whole thing takes forever.
-            # XXX: It's possible that what takes forever is actually building gevent itself.
-            python -mgevent.tests.test__core
-        fi
+#        if [ -z "$GEVENTTEST_SKIP_ALL" ]; then
+#            python -mgevent.tests --second-chance
+#        else
+#            # Allow skipping the bulk of the tests. If we're emulating Arm,
+#            # running the whole thing takes forever.
+#            # XXX: It's possible that what takes forever is actually building gevent itself.
+#            python -mgevent.tests.test__core
+#        fi
         rm -rf build
         rm -f dist/levoai_gevent*.whl
         ccache -s || true
