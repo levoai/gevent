@@ -137,13 +137,13 @@ jobs:
           name: ${{ matrix.config[2] }}_x86_64_wheels.zip
       - name: Restore pip cache permissions
         run: sudo chown -R $(whoami) ${{ steps.pip-cache.outputs.dir }}
-       - name: Publish the binary wheel to GCP Artifactory
-         run: |
-           pip install --upgrade twine wheel
-           printf "[distutils]\nindex-servers = \n    ${_REPO}\n\n[${_REPO}]\nrepository: https://${_REGION}-python.pkg.dev/${PROJECT_ID}/${_REPO}/\nusername: _json_key_base64\npassword: ${{ secrets.GCP_REGISTRY_PASSWORD }}" > ~/.pypirc
-           #mkdir -p ~/.config/pip
-           #printf "[global]\nextra-index-url = https://_json_key_base64:${{ secrets.GCP_REGISTRY_PASSWORD }}@${_REGION}-python.pkg.dev/${PROJECT_ID}/${_REPO}/simple/\ntrusted-host = ${_REGION}-python.pkg.dev\n" > ~/.config/pip/pip.conf
-           twine upload -r levo-pyreg wheelhouse/* --verbose
+      - name: Publish the binary wheel to GCP Artifactory
+        run: |
+         pip install --upgrade twine wheel
+         printf "[distutils]\nindex-servers = \n    ${_REPO}\n\n[${_REPO}]\nrepository: https://${_REGION}-python.pkg.dev/${PROJECT_ID}/${_REPO}/\nusername: _json_key_base64\npassword: ${{ secrets.GCP_REGISTRY_PASSWORD }}" > ~/.pypirc
+        #           mkdir -p ~/.config/pip
+        #           printf "[global]\nextra-index-url = https://_json_key_base64:${{ secrets.GCP_REGISTRY_PASSWORD }}@${_REGION}-python.pkg.dev/${PROJECT_ID}/${_REPO}/simple/\ntrusted-host = ${_REGION}-python.pkg.dev\n" > ~/.config/pip/pip.conf
+         twine upload -r levo-pyreg wheelhouse/* --verbose
 
       - name: Publish package to PyPI
         uses: pypa/gh-action-pypi-publish@v1.4.1
