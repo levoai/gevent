@@ -142,14 +142,14 @@ jobs:
           printf "[distutils]\nindex-servers = \n    ${_REPO}\n\n[${_REPO}]\nrepository: https://${_REGION}-python.pkg.dev/${PROJECT_ID}/${_REPO}/\nusername: _json_key_base64\npassword: ${{ secrets.GCP_REGISTRY_PASSWORD }}" > ~/.pypirc
           twine upload -r levo-pyreg wheelhouse/* --verbose
 
-      - name: Publish package to PyPI
-        uses: pypa/gh-action-pypi-publish@v1.4.1
-#        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
-        with:
-          user: __token__
-          password: ${{ secrets.TWINE_PASSWORD }}
-          skip_existing: true
-          packages_dir: wheelhouse/
+#      - name: Publish package to PyPI
+#        uses: pypa/gh-action-pypi-publish@v1.4.1
+##        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
+#        with:
+#          user: __token__
+#          password: ${{ secrets.TWINE_PASSWORD }}
+#          skip_existing: true
+#          packages_dir: wheelhouse/
 
 # TODO:
 # * Use YAML syntax to share snippets, like the old .travis.yml did
