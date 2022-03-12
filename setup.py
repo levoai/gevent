@@ -346,7 +346,7 @@ def make_long_description():
 
 def run_setup(ext_modules):
     setup(
-        name='levoai-gevent',
+        name='gevent',
         version=__version__,
         description='Coroutine-based network library',
         long_description=make_long_description(),
