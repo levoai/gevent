@@ -62,7 +62,6 @@ env:
   # Uploading built wheels for releases.
   # TWINE_PASSWORD is encrypted and stored directly in the
   # travis repo settings.
-  TWINE_USERNAME: __token__
   ###
   # caching
   ###
