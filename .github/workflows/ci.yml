@@ -88,7 +88,8 @@ jobs:
         # strictness.
         # The standard library has only been updated with fixes for
         # this in 3.8+.
-        os: [ ubuntu-18.04, macos-latest, ubuntu-latest ]
+        os: [ macos-latest ]
+#        os: [ ubuntu-18.04, macos-latest, ubuntu-latest ]
         exclude:
           - os: macos-latest
             python-version: pypy-2.7
