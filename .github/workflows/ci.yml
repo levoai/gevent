@@ -78,6 +78,251 @@ env:
 
 jobs:
 
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        python-version: [ 2.7, pypy-2.7, pypy-3.7, 3.6, 3.7, 3.8, 3.9, '3.10.0' ]
+        # ubuntu-latest is at least 20.04. But this breaks the SSL
+        # tests because Ubuntu increased the default OpenSSL
+        # strictness.
+        # The standard library has only been updated with fixes for
+        # this in 3.8+.
+        os: [ ubuntu-18.04, macos-latest, ubuntu-latest ]
+        exclude:
+          - os: macos-latest
+            python-version: pypy-2.7
+          - os: macos-latest
+            python-version: pypy-3.7
+          - os: macos-latest
+            python-version: 3.6
+          - os: ubuntu-latest
+            python-version: 2.7
+          - os: ubuntu-latest
+            python-version: pypy-2.7
+          - os: ubuntu-latest
+            python-version: pypy-3.7
+          - os: ubuntu-latest
+            python-version: 3.6
+          - os: ubuntu-latest
+            python-version: 3.7
+          - os: ubuntu-18.04
+            python-version: 3.8
+          - os: ubuntu-18.04
+            python-version: 3.9
+          - os: ubuntu-18.04
+            python-version: '3.10.0'
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install ccache (ubuntu)
+        if: startsWith(runner.os, 'Linux')
+        run: |
+          sudo apt-get install -y ccache sed gcc
+      - name: Install ccache (macos)
+        if: startsWith(runner.os, 'macOS')
+        run: |
+          brew install ccache
+          echo CFLAGS=$CFLAGS -Wno-parentheses-equality >>$GITHUB_ENV
+      - name: Set coverage status
+        # coverage is too slow on PyPy. We can't submit it from macOS (see that action),
+        # so don't bother taking the speed hit there either.
+        if: ${{ !startsWith(matrix.python-version, 'pypy') && startsWith(runner.os, 'Linux') }}
+        run: |
+          echo G_USE_COV=--coverage >> $GITHUB_ENV
+
+      ###
+      # Caching.
+      # This actually *restores* a cache and schedules a cleanup action
+      # to save the cache. So it must come before the thing we want to use
+      # the cache.
+      ###
+      - name: Cache ~/.ccache
+        uses: actions/cache@v2
+        with:
+          path: ~/.ccache/
+          key: ${{ runner.os }}-ccache2-${{ matrix.python-version }}
+
+      - name: Get pip cache dir
+        id: pip-cache
+        run: |
+          echo "::set-output name=dir::$(pip cache dir)"
+
+      - name: pip cache
+        uses: actions/cache@v2
+        with:
+          path: ${{ steps.pip-cache.outputs.dir }}
+          key: ${{ runner.os }}-pip-${{ matrix.python-version }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      - name: Cache config.cache
+        # Store the configure caches. Having a cache can speed up c-ares
+        # configure from 2-3 minutes to 20 seconds.
+        uses: actions/cache@v2
+        with:
+          path: deps/*/config.cache
+          # XXX: This should probably include a hash of each configure
+          # script We don't have a restore-keys that doesn't include
+          # the CFLAGS becouse the scripts fail to run if they get
+          # different CFLAGS, CC, CPPFLAGS, etc, and GHA offers no way
+          # to manually clear the cache. At one time, we had a
+          # restore-key configured, and it still seems to be used even
+          # without that setting here. The whole thing is being
+          # matched even without the CFLAGS matching. Perhaps the - is
+          # a generic search separator?
+          key: ${{ runner.os }}-${{ matrix.os }}-configcache3-${{ matrix.python-version }}-${{ env.CFLAGS }}
+
+      # Install gevent. Yes, this will create different files each time,
+      # leading to a fresh cache. But because of CCache stats, we had already been doing
+      # that (before we learned about CCACHE_NOSTATS).
+      # We don't install using the requirements file for speed (reduced deps) and because an editable
+      # install doesn't work in the cache.
+      # First, the build dependencies (see setup.cfg)
+      # so that we don't have to use build isolation and can better use the cache;
+      # Note that we can't use -U for cffi and greenlet on PyPy.
+      # The -q is because Pypy-2.7 sometimes started raising
+      #   UnicodeEncodeError: 'ascii' codec can't encode character u'\u2588' in position 6: ordinal not in range(128)
+      # when downloading files. This started sometime in mid 2020. It's from
+      # pip's vendored progress.bar class.
+      - name: Install dependencies
+        run: |
+          pip install -U pip
+          pip install -U -q setuptools wheel twine
+          pip install -q -U 'faulthandler; python_version == "2.7" and platform_python_implementation == "CPython"'
+          pip install -q -U 'cffi;platform_python_implementation=="CPython"'
+          pip install -q -U 'cython>=3.0a9'
+          pip install 'greenlet>=1.0a1;platform_python_implementation=="CPython"'
+
+      - name: Build gevent
+        run: |
+          # Next, build the wheel *in place*. This helps ccache, and also lets us cache the configure
+          # output (pip install uses a random temporary directory, making this difficult)
+          python setup.py build_ext -i
+          python setup.py bdist_wheel
+      - name: Check gevent build
+        run: |
+          ls -l dist
+          twine check dist/*
+      - name: Upload gevent wheel
+        uses: actions/upload-artifact@v2
+        with:
+          name: gevent-${{ runner.os }}-${{ matrix.python-version }}.whl
+          path: dist/*whl
+      - name: Publish the binary wheel to GCP Artifactory (mac)
+        if: startsWith(runner.os, 'Mac')
+        run: |
+          pip install --upgrade twine wheel
+          printf "[distutils]\nindex-servers = \n    ${_REPO}\n\n[${_REPO}]\nrepository: https://${_REGION}-python.pkg.dev/${PROJECT_ID}/${_REPO}/\nusername: _json_key_base64\npassword: ${{ secrets.GCP_REGISTRY_PASSWORD }}" > ~/.pypirc
+          twine upload -r levo-pyreg dist/* --verbose
+
+#      - name: Publish package to PyPI (mac)
+#        # We cannot 'uses: pypa/gh-action-pypi-publish@v1.4.1' because
+#        # that's apparently a container action, and those don't run on
+#        # the Mac.
+#        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags') && startsWith(runner.os, 'Mac')
+#        env:
+#          TWINE_PASSWORD: ${{ secrets.TWINE_PASSWORD }}
+#        run: |
+#          twine upload --skip-existing dist/*
+
+#      - name: Install gevent
+#        # I'd prefer to install the wheel in non-editable mode, but that seems to
+#        # screw up coverage reporting.
+#        run: |
+#          pip install -U -e .[test]
+#      - name: Report environment details
+#        run: |
+#          python --version
+#          python -c 'import greenlet; print(greenlet, greenlet.__version__)'
+#          python -c 'import gevent; print(gevent.__version__)'
+#          python -c 'from gevent._compat import get_clock_info; print(get_clock_info("perf_counter"))'
+#          python -c 'import gevent.core; print(gevent.core.loop)'
+#          python -c 'import gevent.ares; print(gevent.ares)'
+#          ccache -s
+#      - name: Lint (Python 3.9)
+#        if: matrix.python-version == 3.9 && startsWith(runner.os, 'Linux')
+#        # We only need to do this on one version, and it should be Python 3, because
+#        # pylint has stopped updating for Python 2.
+#        # We do this here rather than a separate job to avoid the compilation overhead.
+#        # TODO: Revisit this when we have caching of that part.
+#        run: |
+#          pip install -U pylint
+#          python -m pylint --rcfile=.pylintrc gevent
+#      - name: "Tests: Basic"
+#        run: |
+#          python -m gevent.tests --second-chance $G_USE_COV
+#      # For the CPython interpreters, unless we have reason to expect
+#      # different behaviour across the versions (e.g., as measured by coverage)
+#      # it's sufficient to run the full suite on the current version
+#      # and oldest version.
+#      - name: "Tests: subproccess and FileObjectThread"
+#        # Now, the non-default threaded file object.
+#        # In the past, we included all test files that had a reference to 'subprocess'' somewhere in their
+#        # text. The monkey-patched stdlib tests were specifically included here.
+#        # However, we now always also test on AppVeyor (Windows) which only has GEVENT_FILE=thread,
+#        # so we can save a lot of CI time by reducing the set and excluding the stdlib tests without
+#        # losing any coverage.
+#        env:
+#          GEVENT_FILE: thread
+#        run: |
+#          python -m gevent.tests --second-chance $G_USE_COV `(cd src/gevent/tests >/dev/null && ls test__*subprocess*.py)`
+#      - name: "Tests: c-ares resolver"
+#        # This sometimes fails on mac. Also, save mac minutes.
+#        if: (matrix.python-version == 2.7 || matrix.python-version == 3.9) && startsWith(runner.os, 'Linux')
+#        env:
+#          GEVENT_RESOLVER: ares
+#        run: |
+#          python -mgevent.tests --second-chance $G_USE_COV --ignore tests_that_dont_use_resolver.txt
+#      - name: "Tests: dnspython resolver"
+#        # This has known issues on Pypy-3.6. Also, save mac minutes.
+#        if: (matrix.python-version == 2.7 || matrix.python-version == 3.9) && startsWith(runner.os, 'Linux')
+#        env:
+#          GEVENT_RESOLVER: dnspython
+#        run: |
+#          python -mgevent.tests --second-chance $G_USE_COV --ignore tests_that_dont_use_resolver.txt
+#      - name: "Tests: leakchecks"
+#        # Run the leaktests; this seems to be extremely slow on Python 3.7
+#        # XXX: Figure out why. Can we reproduce locally?
+#        if: matrix.python-version == 2.7 && startsWith(runner.os, 'Linux')
+#        env:
+#          GEVENTTEST_LEAKCHECK: 1
+#        run: |
+#          python -m gevent.tests --second-chance --ignore tests_that_dont_do_leakchecks.txt
+#      - name: "Tests: PURE_PYTHON"
+#        # No compiled cython modules on CPython, using the default backend. Get coverage here.
+#        # We should only need to run this for a single Python 2 and a Python 3
+#        if: (matrix.python-version == 2.7 || matrix.python-version == 3.9) && startsWith(runner.os, 'Linux')
+#        env:
+#          PURE_PYTHON: 1
+#        run: |
+#          python -mgevent.tests --second-chance --coverage
+#      - name: "Tests: libuv"
+#        if: (matrix.python-version == 2.7 || matrix.python-version == 3.9)
+#        env:
+#          GEVENT_LOOP: libuv
+#        run: |
+#          python -m gevent.tests --second-chance $G_USE_COV
+#      - name: "Tests: libev-cffi"
+#        if: (matrix.python-version == 2.7 || matrix.python-version == 3.9) && startsWith(runner.os, 'Linux')
+#        env:
+#          GEVENT_LOOP: libev-cffi
+#        run: |
+#          python -m gevent.tests --second-chance $G_USE_COV
+#      - name: Report coverage
+#        if: ${{ !startsWith(matrix.python-version, 'pypy')  }}
+#        run: |
+#          python -m coverage combine || true
+#          python -m coverage report -i || true
+#      - name: Submit to Coveralls
+#        # This is a container action, which only runs on Linux.
+#        if: ${{ !startsWith(matrix.python-version, 'pypy') && startsWith(runner.os, 'Linux') }}
+#        uses: AndreMiras/coveralls-python-action@develop
+#        with:
+#          parallel: true
   linux_wheels:
     runs-on: ubuntu-latest
     strategy:
